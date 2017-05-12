@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import os
+import re
+from glob import glob
+from difflib import unified_diff
+from subprocess import Popen, PIPE
+
+SYS_PATH = '/sys/class/net'
+UDEV_CMD = ('udevadm', 'test-builtin', 'net_id')
+
+
+def build_iface_map():
+    ifaces = {}
+    for iface in os.listdir(SYS_PATH):
+        p = Popen(UDEV_CMD + (os.path.join(SYS_PATH, iface),), stdout=PIPE, stderr=PIPE)
+        stdout, _ = p.communicate()
+        ids = {}
+        for line in stdout.strip().splitlines():
+            if line:
+                k, _, v = line.partition(b'=')
+                ids[k.decode('ascii')] = v.decode('ascii')
+        if ids:
+            name = ids.get('ID_NET_NAME_ONBOARD') or ids.get('ID_NET_NAME_SLOT') \
+                   or ids.get('ID_NET_NAME_PATH') or ids.get('ID_NET_NAME_MAC') \
+                   or iface
+            ifaces[iface] = name
+    return ifaces
+
+
+def update_ifnames(filepath, ifnames):
+    with open(filepath) as fh:
+        before = fh.readlines()
+    after = []
+    for line in before:
+        for old, new in ifnames.items():
+            line = re.sub(r" %s(\s)" % old, r" %s\1" % new, line)
+        after.append(line)
+    with open(filepath, 'w') as fh:
+        fh.write(''.join(after))
+    return ''.join(unified_diff(before, after))
+
+
+if __name__ == '__main__':
+    ifnames = build_iface_map()
+    config_files = ['/etc/network/interfaces'] + glob('/etc/network/interfaces.d/*')
+    for filepath in config_files:
+        diff = update_ifnames(filepath, ifnames)
+        if diff:
+            print('Updated %s:' % filepath)
+            print(diff)
