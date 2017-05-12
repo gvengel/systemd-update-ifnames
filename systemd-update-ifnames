@@ -11,6 +11,25 @@ UDEV_CMD = ('udevadm', 'test-builtin', 'net_id')
 
 
 def build_iface_map():
+    """
+    Returns a dict with with classic interface names as keys and the systemd 
+    predictable names as values. The predictable names are selected in the 
+    order documented at:
+    
+    https://www.freedesktop.org/wiki/Software/systemd/PredictableNetworkInterfaceNames/
+
+    Selection order:
+    
+    * Names incorporating Firmware/BIOS provided index numbers for on-board 
+      devices (example: eno1)
+    * Names incorporating Firmware/BIOS provided PCI Express hotplug slot 
+      index numbers (example: ens1)
+    * Names incorporating physical/geographical location of the connector 
+      of the hardware (example: enp2s0)
+    * Names incorporating the interfaces's MAC address 
+      (example: enx78e7d1ea46da)
+    * Classic, unpredictable kernel-native ethX naming (example: eth0)
+    """
     ifaces = {}
     for iface in os.listdir(SYS_PATH):
         p = Popen(UDEV_CMD + (os.path.join(SYS_PATH, iface),), stdout=PIPE, stderr=PIPE)
@@ -21,14 +40,19 @@ def build_iface_map():
                 k, _, v = line.partition(b'=')
                 ids[k.decode('ascii')] = v.decode('ascii')
         if ids:
-            name = ids.get('ID_NET_NAME_ONBOARD') or ids.get('ID_NET_NAME_SLOT') \
-                   or ids.get('ID_NET_NAME_PATH') or ids.get('ID_NET_NAME_MAC') \
+            name = ids.get('ID_NET_NAME_ONBOARD') \
+                   or ids.get('ID_NET_NAME_SLOT') \
+                   or ids.get('ID_NET_NAME_PATH') \
+                   or ids.get('ID_NET_NAME_MAC') \
                    or iface
             ifaces[iface] = name
     return ifaces
 
 
 def update_ifnames(filepath, ifnames):
+    """
+    Replace ifnames references in :filepath: with key values from :ifnames: 
+    """
     with open(filepath) as fh:
         before = fh.readlines()
     after = []
